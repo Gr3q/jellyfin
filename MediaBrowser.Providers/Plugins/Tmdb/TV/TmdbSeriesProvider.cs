@@ -64,6 +64,11 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 {
                     var remoteResult = MapTvShowToRemoteSearchResult(series);
 
+                    if (remoteResult is null)
+                    {
+                        return Array.Empty<RemoteSearchResult>();
+                    }
+
                     return new[] { remoteResult };
                 }
             }
@@ -81,6 +86,11 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                     for (var i = 0; i < tvResults.Count; i++)
                     {
                         var remoteResult = MapSearchTvToRemoteSearchResult(tvResults[i]);
+                        if (remoteResult is null)
+                        {
+                            continue;
+                        }
+
                         remoteResult.SetProviderId(MetadataProvider.Imdb, imdbId);
                         imdbIdResults[i] = remoteResult;
                     }
@@ -102,6 +112,11 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                     for (var i = 0; i < tvResults.Count; i++)
                     {
                         var remoteResult = MapSearchTvToRemoteSearchResult(tvResults[i]);
+                        if (remoteResult is null)
+                        {
+                            continue;
+                        }
+
                         remoteResult.SetProviderId(MetadataProvider.Tvdb, tvdbId);
                         tvIdResults[i] = remoteResult;
                     }
@@ -116,14 +131,25 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             var remoteResults = new RemoteSearchResult[tvSearchResults.Count];
             for (var i = 0; i < tvSearchResults.Count; i++)
             {
-                remoteResults[i] = MapSearchTvToRemoteSearchResult(tvSearchResults[i]);
+                var res = MapSearchTvToRemoteSearchResult(tvSearchResults[i]);
+                if (res is null)
+                {
+                    continue;
+                }
+
+                remoteResults[i] = res;
             }
 
             return remoteResults;
         }
 
-        private RemoteSearchResult MapTvShowToRemoteSearchResult(TvShow series)
+        private RemoteSearchResult? MapTvShowToRemoteSearchResult(TvShow series)
         {
+            if (series is null || series.PosterPath is null)
+            {
+                return null;
+            }
+
             var remoteResult = new RemoteSearchResult
             {
                 Name = series.Name ?? series.OriginalName,
@@ -145,8 +171,13 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             return remoteResult;
         }
 
-        private RemoteSearchResult MapSearchTvToRemoteSearchResult(SearchTv series)
+        private RemoteSearchResult? MapSearchTvToRemoteSearchResult(SearchTv series)
         {
+            if (series is null || series.PosterPath is null)
+            {
+                return null;
+            }
+
             var remoteResult = new RemoteSearchResult
             {
                 Name = series.Name ?? series.OriginalName,
@@ -174,7 +205,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             if (string.IsNullOrEmpty(tmdbId) && info.TryGetProviderId(MetadataProvider.Imdb, out var imdbId))
             {
                 var searchResult = await _tmdbClientManager.FindByExternalIdAsync(imdbId, FindExternalSource.Imdb, info.MetadataLanguage, info.MetadataCountryCode, cancellationToken).ConfigureAwait(false);
-                if (searchResult?.TvResults.Count > 0)
+                if (searchResult?.TvResults?.Count > 0)
                 {
                     tmdbId = searchResult.TvResults[0].Id.ToString(CultureInfo.InvariantCulture);
                 }
@@ -183,7 +214,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             if (string.IsNullOrEmpty(tmdbId) && info.TryGetProviderId(MetadataProvider.Tvdb, out var tvdbId))
             {
                 var searchResult = await _tmdbClientManager.FindByExternalIdAsync(tvdbId, FindExternalSource.TvDb, info.MetadataLanguage, info.MetadataCountryCode, cancellationToken).ConfigureAwait(false);
-                if (searchResult?.TvResults.Count > 0)
+                if (searchResult?.TvResults?.Count > 0)
                 {
                     tmdbId = searchResult.TvResults[0].Id.ToString(CultureInfo.InvariantCulture);
                 }
@@ -264,15 +295,24 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             {
                 for (var i = 0; i < seriesResult.Keywords.Results.Count; i++)
                 {
-                    series.AddTag(seriesResult.Keywords.Results[i].Name);
+                    var name = seriesResult.Keywords.Results[i].Name;
+                    if (name is null || string.IsNullOrWhiteSpace(name))
+                    {
+                        continue;
+                    }
+
+                    series.AddTag(name);
                 }
             }
 
             series.HomePageUrl = seriesResult.Homepage;
 
-            series.RunTimeTicks = seriesResult.EpisodeRunTime.Select(i => TimeSpan.FromMinutes(i).Ticks).FirstOrDefault();
+            if (seriesResult.EpisodeRunTime is not null)
+            {
+                series.RunTimeTicks = seriesResult.EpisodeRunTime.Select(i => TimeSpan.FromMinutes(i).Ticks).FirstOrDefault();
+            }
 
-            if (Emby.Naming.TV.TvParserHelpers.TryParseSeriesStatus(seriesResult.Status, out var seriesStatus))
+            if (seriesResult.Status is not null && Emby.Naming.TV.TvParserHelpers.TryParseSeriesStatus(seriesResult.Status, out var seriesStatus))
             {
                 series.Status = seriesStatus;
             }
@@ -288,13 +328,13 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 series.TrySetProviderId(MetadataProvider.Tvdb, ids.TvdbId);
             }
 
-            var contentRatings = seriesResult.ContentRatings.Results ?? new List<ContentRating>();
+            var contentRatings = seriesResult.ContentRatings?.Results ?? new List<ContentRating>();
 
             var ourRelease = contentRatings.FirstOrDefault(c => string.Equals(c.Iso_3166_1, preferredCountryCode, StringComparison.OrdinalIgnoreCase));
             var usRelease = contentRatings.FirstOrDefault(c => string.Equals(c.Iso_3166_1, "US", StringComparison.OrdinalIgnoreCase));
             var minimumRelease = contentRatings.FirstOrDefault();
 
-            if (ourRelease is not null)
+            if (ourRelease is not null && ourRelease.Iso_3166_1 is not null && ourRelease.Rating is not null)
             {
                 series.OfficialRating = TmdbUtils.BuildParentalRating(ourRelease.Iso_3166_1, ourRelease.Rating);
             }
@@ -336,7 +376,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
 
                 foreach (var actor in castQuery.Take(config.MaxCastMembers))
                 {
-                    if (string.IsNullOrWhiteSpace(actor.Name))
+                    if (actor is null || actor.ProfilePath == null || string.IsNullOrWhiteSpace(actor.Name))
                     {
                         continue;
                     }
@@ -380,7 +420,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 {
                     var crewMember = entry.CrewMember;
 
-                    if (string.IsNullOrWhiteSpace(crewMember.Name))
+                    if (crewMember is null || crewMember.ProfilePath == null || string.IsNullOrWhiteSpace(crewMember.Name))
                     {
                         continue;
                     }

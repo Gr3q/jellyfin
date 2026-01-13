@@ -57,7 +57,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 .GetSeasonAsync(Convert.ToInt32(seriesTmdbId, CultureInfo.InvariantCulture), seasonNumber.Value, info.MetadataLanguage, TmdbUtils.GetImageLanguagesParam(info.MetadataLanguage, info.MetadataCountryCode), info.MetadataCountryCode, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (seasonResult is null)
+            if (seasonResult is null || seasonResult.ExternalIds is null)
             {
                 return result;
             }
@@ -89,7 +89,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
 
                 foreach (var actor in castQuery.Take(config.MaxCastMembers))
                 {
-                    if (string.IsNullOrWhiteSpace(actor.Name))
+                    if (actor is null || actor.ProfilePath == null || string.IsNullOrWhiteSpace(actor.Name))
                     {
                         continue;
                     }
@@ -133,7 +133,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 {
                     var crewMember = entry.CrewMember;
 
-                    if (string.IsNullOrWhiteSpace(crewMember.Name))
+                    if (crewMember is null || crewMember.ProfilePath == null || string.IsNullOrWhiteSpace(crewMember.Name))
                     {
                         continue;
                     }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,13 +51,14 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.People
                         Overview = personResult.Biography
                     };
 
-                    if (personResult.Images?.Profiles is not null && personResult.Images.Profiles.Count > 0)
+                    var profilePath = personResult.Images?.Profiles?.ElementAt(0)?.FilePath;
+                    if (profilePath is not null)
                     {
-                        result.ImageUrl = _tmdbClientManager.GetProfileUrl(personResult.Images.Profiles[0].FilePath);
+                        result.ImageUrl = _tmdbClientManager.GetProfileUrl(profilePath);
                     }
 
                     result.SetProviderId(MetadataProvider.Tmdb, personResult.Id.ToString(CultureInfo.InvariantCulture));
-                    result.TrySetProviderId(MetadataProvider.Imdb, personResult.ExternalIds.ImdbId);
+                    result.TrySetProviderId(MetadataProvider.Imdb, personResult.ExternalIds?.ImdbId);
 
                     return new[] { result };
                 }
@@ -68,6 +70,11 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.People
             for (var i = 0; i < personSearchResult.Count; i++)
             {
                 var person = personSearchResult[i];
+                if (person is null || string.IsNullOrEmpty(person.ProfilePath))
+                {
+                    continue;
+                }
+
                 var remoteSearchResult = new RemoteSearchResult
                 {
                     SearchProviderName = Name,

@@ -213,7 +213,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
 
                 foreach (var actor in castQuery.Take(config.MaxCastMembers))
                 {
-                    if (string.IsNullOrWhiteSpace(actor.Name))
+                    if (actor is null || actor.ProfilePath == null || string.IsNullOrWhiteSpace(actor.Name))
                     {
                         continue;
                     }
@@ -244,7 +244,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
 
                 foreach (var guest in guestQuery.Take(config.MaxCastMembers))
                 {
-                    if (string.IsNullOrWhiteSpace(guest.Name))
+                    if (guest is null || guest.ProfilePath == null || string.IsNullOrWhiteSpace(guest.Name))
                     {
                         continue;
                     }
@@ -288,7 +288,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 {
                     var crewMember = entry.CrewMember;
 
-                    if (string.IsNullOrWhiteSpace(crewMember.Name))
+                    if (crewMember is null || crewMember.ProfilePath == null || string.IsNullOrWhiteSpace(crewMember.Name))
                     {
                         continue;
                     }

@@ -69,19 +69,19 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The Jellyfin person type.</returns>
         public static PersonKind MapCrewToPersonType(Crew crew)
         {
-            if (crew.Department.Equals("production", StringComparison.OrdinalIgnoreCase)
-                && crew.Job.Contains("director", StringComparison.OrdinalIgnoreCase))
+            if (crew.Department?.Equals("production", StringComparison.OrdinalIgnoreCase) == true
+                && crew.Job?.Contains("director", StringComparison.OrdinalIgnoreCase) == true)
             {
                 return PersonKind.Director;
             }
 
-            if (crew.Department.Equals("production", StringComparison.OrdinalIgnoreCase)
-                && crew.Job.Contains("producer", StringComparison.OrdinalIgnoreCase))
+            if (crew.Department?.Equals("production", StringComparison.OrdinalIgnoreCase) == true
+                && crew.Job?.Contains("producer", StringComparison.OrdinalIgnoreCase) == true)
             {
                 return PersonKind.Producer;
             }
 
-            if (crew.Department.Equals("writing", StringComparison.OrdinalIgnoreCase))
+            if (crew.Department?.Equals("writing", StringComparison.OrdinalIgnoreCase) == true)
             {
                 return PersonKind.Writer;
             }
@@ -96,9 +96,9 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>A boolean indicating whether the video is a trailer.</returns>
         public static bool IsTrailerType(Video video)
         {
-            return video.Site.Equals("youtube", StringComparison.OrdinalIgnoreCase)
-                   && (video.Type.Equals("trailer", StringComparison.OrdinalIgnoreCase)
-                       || video.Type.Equals("teaser", StringComparison.OrdinalIgnoreCase));
+            return video.Site?.Equals("youtube", StringComparison.OrdinalIgnoreCase) == true
+                   && (video.Type?.Equals("trailer", StringComparison.OrdinalIgnoreCase) == true
+                       || video.Type?.Equals("teaser", StringComparison.OrdinalIgnoreCase) == true);
         }
 
         /// <summary>

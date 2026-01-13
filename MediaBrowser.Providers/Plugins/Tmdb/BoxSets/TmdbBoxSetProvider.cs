@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using ICU4N.Util;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
@@ -60,7 +61,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
                     SearchProviderName = Name
                 };
 
-                if (collection.Images is not null)
+                if (collection.Images is not null && !string.IsNullOrEmpty(collection.PosterPath))
                 {
                     result.ImageUrl = _tmdbClientManager.GetPosterUrl(collection.PosterPath);
                 }
@@ -76,6 +77,11 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.BoxSets
             for (var i = 0; i < collectionSearchResults.Count; i++)
             {
                 var result = collectionSearchResults[i];
+                if (result is null || string.IsNullOrEmpty(result.PosterPath))
+                {
+                    continue;
+                }
+
                 var collection = new RemoteSearchResult
                 {
                     Name = result.Name,

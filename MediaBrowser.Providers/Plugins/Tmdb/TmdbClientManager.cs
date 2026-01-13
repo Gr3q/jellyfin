@@ -43,6 +43,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
 
             // Not really interested in NotFoundException
             _tmDbClient.ThrowApiExceptions = false;
+            // _tmDbClient.Timeout = TimeSpan.FromSeconds(5);
         }
 
         /// <summary>
@@ -195,7 +196,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
             await EnsureClientConfigAsync().ConfigureAwait(false);
 
             var series = await GetSeriesAsync(tvShowId, language, imageLanguages, countryCode, cancellationToken).ConfigureAwait(false);
-            var episodeGroupId = series?.EpisodeGroups.Results.Find(g => g.Type == groupType)?.Id;
+            var episodeGroupId = series?.EpisodeGroups?.Results?.Find(g => g.Type == groupType)?.Id;
 
             if (episodeGroupId is null)
             {
@@ -263,7 +264,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <param name="countryCode">The country code, ISO 3166-1.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>The TMDb tv episode information or null if not found.</returns>
-        public async Task<TvEpisode?> GetEpisodeAsync(int tvShowId, int seasonNumber, int episodeNumber, string displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
+        public async Task<TvEpisode?> GetEpisodeAsync(int tvShowId, int seasonNumber, long episodeNumber, string displayOrder, string? language, string? imageLanguages, string? countryCode, CancellationToken cancellationToken)
         {
             var key = $"episode-{tvShowId.ToString(CultureInfo.InvariantCulture)}-s{seasonNumber.ToString(CultureInfo.InvariantCulture)}e{episodeNumber.ToString(CultureInfo.InvariantCulture)}-{displayOrder}-{language}";
             if (_memoryCache.TryGetValue(key, out TvEpisode? episode))
@@ -276,9 +277,9 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
             var group = await GetSeriesGroupAsync(tvShowId, displayOrder, language, imageLanguages, countryCode, cancellationToken).ConfigureAwait(false);
             if (group is not null)
             {
-                var season = group.Groups.Find(s => s.Order == seasonNumber);
+                var season = group.Groups?.Find(s => s.Order == seasonNumber);
                 // Episode order starts at 0
-                var ep = season?.Episodes.Find(e => e.Order == episodeNumber - 1);
+                var ep = season?.Episodes?.Find(e => e.Order == episodeNumber - 1);
                 if (ep is not null)
                 {
                     seasonNumber = ep.SeasonNumber;
@@ -289,7 +290,8 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
             episode = await _tmDbClient.GetTvEpisodeAsync(
                 tvShowId,
                 seasonNumber,
-                episodeNumber,
+                // FIXME: client should accept long
+                (int)episodeNumber,
                 language: TmdbUtils.NormalizeLanguage(language, countryCode),
                 includeImageLanguage: imageLanguages,
                 extraMethods: TvEpisodeMethods.Credits | TvEpisodeMethods.Images | TvEpisodeMethods.ExternalIds | TvEpisodeMethods.Videos,
@@ -385,7 +387,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         public async Task<IReadOnlyList<SearchTv>> SearchSeriesAsync(string name, string language, string? countryCode, int year = 0, CancellationToken cancellationToken = default)
         {
             var key = $"searchseries-{name}-{year.ToString(CultureInfo.InvariantCulture)}-{language}";
-            if (_memoryCache.TryGetValue(key, out SearchContainer<SearchTv>? series) && series is not null)
+            if (_memoryCache.TryGetValue(key, out SearchContainer<SearchTv>? series) && series is not null && series.Results is not null)
             {
                 return series.Results;
             }
@@ -396,12 +398,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 .SearchTvShowAsync(name, TmdbUtils.NormalizeLanguage(language, countryCode), includeAdult: Plugin.Instance.Configuration.IncludeAdult, firstAirDateYear: year, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            if (searchResults.Results.Count > 0)
+            if (searchResults?.Results?.Count > 0)
             {
                 _memoryCache.Set(key, searchResults, TimeSpan.FromHours(CacheDurationInHours));
             }
 
-            return searchResults.Results;
+            return searchResults?.Results ?? new List<SearchTv>();
         }
 
         /// <summary>
@@ -413,7 +415,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         public async Task<IReadOnlyList<SearchPerson>> SearchPersonAsync(string name, CancellationToken cancellationToken)
         {
             var key = $"searchperson-{name}";
-            if (_memoryCache.TryGetValue(key, out SearchContainer<SearchPerson>? person) && person is not null)
+            if (_memoryCache.TryGetValue(key, out SearchContainer<SearchPerson>? person) && person is not null && person.Results is not null)
             {
                 return person.Results;
             }
@@ -424,12 +426,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 .SearchPersonAsync(name, includeAdult: Plugin.Instance.Configuration.IncludeAdult, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            if (searchResults.Results.Count > 0)
+            if (searchResults?.Results?.Count > 0)
             {
                 _memoryCache.Set(key, searchResults, TimeSpan.FromHours(CacheDurationInHours));
             }
 
-            return searchResults.Results;
+            return searchResults?.Results ?? new List<SearchPerson>();
         }
 
         /// <summary>
@@ -456,7 +458,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         public async Task<IReadOnlyList<SearchMovie>> SearchMovieAsync(string name, int year, string language, string? countryCode, CancellationToken cancellationToken)
         {
             var key = $"moviesearch-{name}-{year.ToString(CultureInfo.InvariantCulture)}-{language}";
-            if (_memoryCache.TryGetValue(key, out SearchContainer<SearchMovie>? movies) && movies is not null)
+            if (_memoryCache.TryGetValue(key, out SearchContainer<SearchMovie>? movies) && movies is not null && movies.Results is not null)
             {
                 return movies.Results;
             }
@@ -467,12 +469,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 .SearchMovieAsync(name, TmdbUtils.NormalizeLanguage(language, countryCode), includeAdult: Plugin.Instance.Configuration.IncludeAdult, year: year, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            if (searchResults.Results.Count > 0)
+            if (searchResults?.Results?.Count > 0)
             {
                 _memoryCache.Set(key, searchResults, TimeSpan.FromHours(CacheDurationInHours));
             }
 
-            return searchResults.Results;
+            return searchResults?.Results ?? new List<SearchMovie>();
         }
 
         /// <summary>
@@ -486,7 +488,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         public async Task<IReadOnlyList<SearchCollection>> SearchCollectionAsync(string name, string language, string? countryCode, CancellationToken cancellationToken)
         {
             var key = $"collectionsearch-{name}-{language}";
-            if (_memoryCache.TryGetValue(key, out SearchContainer<SearchCollection>? collections) && collections is not null)
+            if (_memoryCache.TryGetValue(key, out SearchContainer<SearchCollection>? collections) && collections is not null && collections.Results is not null)
             {
                 return collections.Results;
             }
@@ -497,12 +499,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
                 .SearchCollectionAsync(name, TmdbUtils.NormalizeLanguage(language, countryCode), cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            if (searchResults.Results.Count > 0)
+            if (searchResults?.Results?.Count > 0)
             {
                 _memoryCache.Set(key, searchResults, TimeSpan.FromHours(CacheDurationInHours));
             }
 
-            return searchResults.Results;
+            return searchResults?.Results ?? new List<SearchCollection>();
         }
 
         /// <summary>
@@ -513,7 +515,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         /// <returns>The absolute URL.</returns>
         private string? GetUrl(string? size, string path)
         {
-            if (string.IsNullOrEmpty(path))
+            if (string.IsNullOrEmpty(path) || size is null)
             {
                 return null;
             }
@@ -602,6 +604,10 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
             for (var i = 0; i < images.Count; i++)
             {
                 var image = images[i];
+                if (string.IsNullOrEmpty(image.FilePath) || image.Iso_639_1 is null)
+                {
+                    continue;
+                }
 
                 var imageType = type;
                 var language = TmdbUtils.AdjustImageLanguage(image.Iso_639_1, requestLanguage);
@@ -640,29 +646,34 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         {
             var imageConfig = config.Images;
 
+            if (imageConfig is null)
+            {
+                return;
+            }
+
             var pluginConfig = Plugin.Instance.Configuration;
 
-            if (!imageConfig.PosterSizes.Contains(pluginConfig.PosterSize))
+            if (imageConfig.PosterSizes is not null && pluginConfig.PosterSize is not null && !imageConfig.PosterSizes.Contains(pluginConfig.PosterSize))
             {
                 pluginConfig.PosterSize = imageConfig.PosterSizes[^1];
             }
 
-            if (!imageConfig.BackdropSizes.Contains(pluginConfig.BackdropSize))
+            if (imageConfig.BackdropSizes is not null && pluginConfig.BackdropSize is not null && !imageConfig.BackdropSizes.Contains(pluginConfig.BackdropSize))
             {
                 pluginConfig.BackdropSize = imageConfig.BackdropSizes[^1];
             }
 
-            if (!imageConfig.LogoSizes.Contains(pluginConfig.LogoSize))
+            if (imageConfig.LogoSizes is not null && pluginConfig.LogoSize is not null && !imageConfig.LogoSizes.Contains(pluginConfig.LogoSize))
             {
                 pluginConfig.LogoSize = imageConfig.LogoSizes[^1];
             }
 
-            if (!imageConfig.ProfileSizes.Contains(pluginConfig.ProfileSize))
+            if (imageConfig.ProfileSizes is not null && pluginConfig.ProfileSize is not null && !imageConfig.ProfileSizes.Contains(pluginConfig.ProfileSize))
             {
                 pluginConfig.ProfileSize = imageConfig.ProfileSizes[^1];
             }
 
-            if (!imageConfig.StillSizes.Contains(pluginConfig.StillSize))
+            if (imageConfig.StillSizes is not null && pluginConfig.StillSize is not null && !imageConfig.StillSizes.Contains(pluginConfig.StillSize))
             {
                 pluginConfig.StillSize = imageConfig.StillSizes[^1];
             }
