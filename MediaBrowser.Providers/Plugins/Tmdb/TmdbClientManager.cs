@@ -43,7 +43,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
 
             // Not really interested in NotFoundException
             _tmDbClient.ThrowApiExceptions = false;
-            // _tmDbClient.Timeout = TimeSpan.FromSeconds(5);
+            _tmDbClient.Timeout = TimeSpan.FromSeconds(5);
         }
 
         /// <summary>
