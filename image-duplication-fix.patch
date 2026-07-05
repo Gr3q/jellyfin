@@ -1,0 +1,140 @@
+diff --git a/Jellyfin.Server.Implementations/Item/BaseItemRepository.QueryBuilding.cs b/Jellyfin.Server.Implementations/Item/BaseItemRepository.QueryBuilding.cs
+index d6ddf8f5c8..f8eaaeabeb 100644
+--- a/Jellyfin.Server.Implementations/Item/BaseItemRepository.QueryBuilding.cs
++++ b/Jellyfin.Server.Implementations/Item/BaseItemRepository.QueryBuilding.cs
+@@ -25,7 +25,14 @@ public sealed partial class BaseItemRepository
+     /// <inheritdoc />
+     public IQueryable<BaseItemEntity> PrepareItemQuery(JellyfinDbContext context, InternalItemsQuery filter)
+     {
+-        IQueryable<BaseItemEntity> dbQuery = context.BaseItems.AsNoTracking();
++        // Identity resolution is required here: this query eagerly loads multiple collection
++        // navigations (Images, Provider, UserData, LinkedChildEntities, ...) as a single query.
++        // With plain AsNoTracking() EF Core performs no identity resolution, so the JOIN cartesian
++        // materializes duplicate entries into each collection navigation (e.g. entity.Images gets
++        // |Images| x |otherCollections| copies). When such an item is later persisted via
++        // delete-then-insert, the duplicated images are written back and - because BaseItemImageInfos
++        // uses a random surrogate GUID primary key - they accumulate and double on every scan.
++        IQueryable<BaseItemEntity> dbQuery = context.BaseItems.AsNoTrackingWithIdentityResolution();
+         dbQuery = dbQuery.AsSingleQuery();
+ 
+         return dbQuery;
+diff --git a/Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs b/Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs
+index b10f7c527e..ed6177b19e 100644
+--- a/Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs
++++ b/Jellyfin.Server.Implementations/Item/ItemPersistenceService.cs
+@@ -171,7 +171,13 @@ public class ItemPersistenceService : IItemPersistenceService
+     {
+         ArgumentNullException.ThrowIfNull(item);
+ 
+-        var images = item.ImageInfos.Select(e => BaseItemMapper.MapImageToEntity(item.Id, e)).ToArray();
++        // Guard against duplicate image entries (same type + path) ever being persisted.
++        // A single logical image must map to a single row; without this, duplicates in the
++        // in-memory ImageInfos collection would be inserted verbatim and accumulate over time.
++        var images = item.ImageInfos
++            .DistinctBy(e => (e.Type, e.Path))
++            .Select(e => BaseItemMapper.MapImageToEntity(item.Id, e))
++            .ToArray();
+ 
+         var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+         await using (context.ConfigureAwait(false))
+@@ -276,7 +282,8 @@ public class ItemPersistenceService : IItemPersistenceService
+ 
+                 if (entity.Images is { Count: > 0 })
+                 {
+-                    context.BaseItemImageInfos.AddRange(entity.Images);
++                    // Deduplicate by (type, path) so duplicate image entries can never be persisted.
++                    context.BaseItemImageInfos.AddRange(entity.Images.DistinctBy(e => (e.ImageType, e.Path)));
+                 }
+ 
+                 if (entity.LockedFields is { Count: > 0 })
+diff --git a/Jellyfin.Server/Migrations/Routines/20260705120000_DeduplicateImageInfos.cs b/Jellyfin.Server/Migrations/Routines/20260705120000_DeduplicateImageInfos.cs
+new file mode 100644
+index 0000000000..9c7954d1d5
+--- /dev/null
++++ b/Jellyfin.Server/Migrations/Routines/20260705120000_DeduplicateImageInfos.cs
+@@ -0,0 +1,85 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Threading;
++using System.Threading.Tasks;
++using Jellyfin.Database.Implementations;
++using Jellyfin.Server.ServerSetupApp;
++using Microsoft.EntityFrameworkCore;
++using Microsoft.Extensions.Logging;
++
++namespace Jellyfin.Server.Migrations.Routines;
++
++/// <summary>
++/// Removes duplicate <c>BaseItemImageInfos</c> rows that share the same item, image type and path.
++/// <para>
++/// A regression allowed the same logical image to be persisted many times for a single item (the
++/// count doubling on every library scan), because the item load query materialized duplicate
++/// navigation entries and <c>BaseItemImageInfos</c> uses a random surrogate GUID primary key that
++/// does not collapse duplicate inserts. This one-off cleanup keeps a single row per
++/// <c>(ItemId, ImageType, Path)</c> group and deletes the rest.
++/// </para>
++/// </summary>
++[JellyfinMigration("2026-07-05T12:00:00", nameof(DeduplicateImageInfos))]
++[JellyfinMigrationBackup(JellyfinDb = true)]
++public class DeduplicateImageInfos : IAsyncMigrationRoutine
++{
++    private const int DeleteChunkSize = 500;
++
++    private readonly IStartupLogger<DeduplicateImageInfos> _logger;
++    private readonly IDbContextFactory<JellyfinDbContext> _dbContextFactory;
++
++    /// <summary>
++    /// Initializes a new instance of the <see cref="DeduplicateImageInfos"/> class.
++    /// </summary>
++    /// <param name="logger">The startup logger.</param>
++    /// <param name="dbContextFactory">The database context factory.</param>
++    public DeduplicateImageInfos(
++        IStartupLogger<DeduplicateImageInfos> logger,
++        IDbContextFactory<JellyfinDbContext> dbContextFactory)
++    {
++        _logger = logger;
++        _dbContextFactory = dbContextFactory;
++    }
++
++    /// <inheritdoc/>
++    public async Task PerformAsync(CancellationToken cancellationToken)
++    {
++        var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
++        await using (context.ConfigureAwait(false))
++        {
++            // Project only the columns needed to identify duplicates; keeps memory bounded even on
++            // heavily inflated databases.
++            var rows = await context.BaseItemImageInfos
++                .Select(e => new { e.Id, e.ItemId, e.ImageType, e.Path })
++                .ToListAsync(cancellationToken)
++                .ConfigureAwait(false);
++
++            var idsToDelete = rows
++                .GroupBy(e => (e.ItemId, e.ImageType, e.Path))
++                .Where(g => g.Count() > 1)
++                .SelectMany(g => g.OrderBy(x => x.Id).Skip(1).Select(x => x.Id))
++                .ToList();
++
++            if (idsToDelete.Count == 0)
++            {
++                _logger.LogInformation("No duplicate BaseItemImageInfos rows found");
++                return;
++            }
++
++            _logger.LogInformation("Removing {Count} duplicate BaseItemImageInfos rows", idsToDelete.Count);
++
++            var removed = 0;
++            foreach (var chunk in idsToDelete.Chunk(DeleteChunkSize))
++            {
++                var ids = chunk;
++                removed += await context.BaseItemImageInfos
++                    .Where(e => ids.Contains(e.Id))
++                    .ExecuteDeleteAsync(cancellationToken)
++                    .ConfigureAwait(false);
++            }
++
++            _logger.LogInformation("Removed {Count} duplicate BaseItemImageInfos rows", removed);
++        }
++    }
++}

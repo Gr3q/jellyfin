@@ -25,7 +25,14 @@ public sealed partial class BaseItemRepository
     /// <inheritdoc />
     public IQueryable<BaseItemEntity> PrepareItemQuery(JellyfinDbContext context, InternalItemsQuery filter)
     {
-        IQueryable<BaseItemEntity> dbQuery = context.BaseItems.AsNoTracking();
+        // Identity resolution is required here: this query eagerly loads multiple collection
+        // navigations (Images, Provider, UserData, LinkedChildEntities, ...) as a single query.
+        // With plain AsNoTracking() EF Core performs no identity resolution, so the JOIN cartesian
+        // materializes duplicate entries into each collection navigation (e.g. entity.Images gets
+        // |Images| x |otherCollections| copies). When such an item is later persisted via
+        // delete-then-insert, the duplicated images are written back and - because BaseItemImageInfos
+        // uses a random surrogate GUID primary key - they accumulate and double on every scan.
+        IQueryable<BaseItemEntity> dbQuery = context.BaseItems.AsNoTrackingWithIdentityResolution();
         dbQuery = dbQuery.AsSingleQuery();
 
         return dbQuery;

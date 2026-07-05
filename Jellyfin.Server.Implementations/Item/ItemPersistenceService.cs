@@ -171,7 +171,13 @@ public class ItemPersistenceService : IItemPersistenceService
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        var images = item.ImageInfos.Select(e => BaseItemMapper.MapImageToEntity(item.Id, e)).ToArray();
+        // Guard against duplicate image entries (same type + path) ever being persisted.
+        // A single logical image must map to a single row; without this, duplicates in the
+        // in-memory ImageInfos collection would be inserted verbatim and accumulate over time.
+        var images = item.ImageInfos
+            .DistinctBy(e => (e.Type, e.Path))
+            .Select(e => BaseItemMapper.MapImageToEntity(item.Id, e))
+            .ToArray();
 
         var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (context.ConfigureAwait(false))
@@ -276,7 +282,8 @@ public class ItemPersistenceService : IItemPersistenceService
 
                 if (entity.Images is { Count: > 0 })
                 {
-                    context.BaseItemImageInfos.AddRange(entity.Images);
+                    // Deduplicate by (type, path) so duplicate image entries can never be persisted.
+                    context.BaseItemImageInfos.AddRange(entity.Images.DistinctBy(e => (e.ImageType, e.Path)));
                 }
 
                 if (entity.LockedFields is { Count: > 0 })
